@@ -1,0 +1,45 @@
+name: Build ReoFix deb
+on:
+  workflow_dispatch:
+  push:
+jobs:
+  build:
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tìm thư mục mã nguồn
+        run: |
+          if [ -f Makefile ]; then
+            echo "SRC=$PWD" >> "$GITHUB_ENV"
+          else
+            Z=$(ls ReoFix*.zip 2>/dev/null | sort | tail -1)
+            [ -n "$Z" ] || { echo "Không thấy Makefile hay file ReoFix*.zip ở gốc repo"; exit 1; }
+            mkdir -p "$RUNNER_TEMP/src"
+            unzip -q -o "$Z" -d "$RUNNER_TEMP/src"
+            M=$(find "$RUNNER_TEMP/src" -maxdepth 3 -name Makefile -not -path '*/reofixprefs/*' | head -1)
+            [ -n "$M" ] || { echo "Trong $Z không có Makefile"; exit 1; }
+            echo "SRC=$(dirname "$M")" >> "$GITHUB_ENV"
+          fi
+      - name: Cài công cụ
+        run: brew install ldid dpkg
+      - name: Cài Theos
+        run: |
+          git clone --recursive --depth=1 https://github.com/theos/theos.git "$HOME/theos"
+          echo "THEOS=$HOME/theos" >> "$GITHUB_ENV"
+      - name: Lấy SDK iOS 16.5
+        run: |
+          git clone --depth=1 --filter=blob:none --sparse https://github.com/theos/sdks.git "$RUNNER_TEMP/sdks"
+          git -C "$RUNNER_TEMP/sdks" sparse-checkout set iPhoneOS16.5.sdk
+          mkdir -p "$HOME/theos/sdks"
+          mv "$RUNNER_TEMP/sdks/iPhoneOS16.5.sdk" "$HOME/theos/sdks/"
+      - name: Build
+        run: |
+          cd "$SRC"
+          make package FINALPACKAGE=1
+          mkdir -p "$GITHUB_WORKSPACE/out"
+          cp packages/*.deb "$GITHUB_WORKSPACE/out/"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ReoFix-deb
+          path: out/*.deb
+          if-no-files-found: error
